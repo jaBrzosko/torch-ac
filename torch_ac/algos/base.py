@@ -1,15 +1,17 @@
 from abc import ABC, abstractmethod
 import torch
+import numpy as np
 
 from torch_ac.format import default_preprocess_obss
 from torch_ac.utils import DictList, ParallelEnv
+from torch_ac.utils.helper import mask_tensor
 
 
 class BaseAlgo(ABC):
     """The base class for RL algorithms."""
 
     def __init__(self, envs, acmodel, device, num_frames_per_proc, discount, lr, gae_lambda, entropy_coef,
-                 value_loss_coef, max_grad_norm, recurrence, preprocess_obss, reshape_reward):
+                 value_loss_coef, max_grad_norm, recurrence, preprocess_obss, reshape_reward, mask_actions):
         """
         Initializes a `BaseAlgo` instance.
 
@@ -42,6 +44,9 @@ class BaseAlgo(ABC):
         reshape_reward : function
             a function that shapes the reward, takes an
             (observation, action, reward, done) tuple as an input
+        mask_actions : function
+            a function that takes observations returned by the environment
+            and returns a mask for limited actions
         """
 
         # Store parameters
@@ -59,6 +64,7 @@ class BaseAlgo(ABC):
         self.recurrence = recurrence
         self.preprocess_obss = preprocess_obss or default_preprocess_obss
         self.reshape_reward = reshape_reward
+        self.mask_actions = mask_actions
 
         # Control parameters
 
@@ -124,7 +130,11 @@ class BaseAlgo(ABC):
             reward, policy loss, value loss, etc.
         """
 
+        print("Collecting experiences...", end='\n')
+
         for i in range(self.num_frames_per_proc):
+            print("Collecting frame %d/%d" % (i + 1, self.num_frames_per_proc), end='\r')
+
             # Do one agent-environment interaction
 
             preprocessed_obs = self.preprocess_obss(self.obs, device=self.device)
@@ -133,6 +143,11 @@ class BaseAlgo(ABC):
                     dist, value, memory = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))
                 else:
                     dist, value = self.acmodel(preprocessed_obs)
+
+            if self.mask_actions:
+                mask = self.mask_actions(preprocessed_obs, device=self.device)
+                dist = mask_tensor(dist, mask)
+
             action = dist.sample()
 
             obs, reward, terminated, truncated, _ = self.env.step(action.cpu().numpy())
