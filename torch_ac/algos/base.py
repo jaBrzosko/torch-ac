@@ -130,8 +130,6 @@ class BaseAlgo(ABC):
             reward, policy loss, value loss, etc.
         """
 
-        print("Collecting experiences...", end='\n')
-
         for i in range(self.num_frames_per_proc):
             print("Collecting frame %d/%d" % (i + 1, self.num_frames_per_proc), end='\r')
 
